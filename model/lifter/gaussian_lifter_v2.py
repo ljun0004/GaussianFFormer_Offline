@@ -10,7 +10,61 @@ try:
     from pointops import farthest_point_sampling
 except:
     print("farthest_point_sampling import error.")
-
+    print("Bypassing pointops: Using native PyTorch Farthest Point Sampling.")
+    
+    def farthest_point_sampling(xyz, sublens, new_sublens):
+        """
+        Pure PyTorch fallback for Farthest Point Sampling (FPS) supporting batched offsets.
+        
+        Args:
+            xyz (Tensor): [Total_N, 3] flattened spatial coordinates
+            sublens (Tensor): [Batch] cumulative ending indices of the input point clouds
+            new_sublens (Tensor): [Batch] cumulative ending indices of the output point clouds
+        """
+        device = xyz.device
+        
+        # The total number of points we need to sample across all batches
+        total_samples = int(new_sublens[-1].item())
+        centroids = torch.zeros(total_samples, dtype=torch.long, device=device)
+        
+        start_idx = 0
+        out_start_idx = 0
+        
+        # Iterate through each concatenated point cloud using the sublens offsets
+        for batch_idx in range(len(sublens)):
+            end_idx = int(sublens[batch_idx].item())
+            out_end_idx = int(new_sublens[batch_idx].item())
+            
+            num_points = end_idx - start_idx
+            sample_count = out_end_idx - out_start_idx
+            
+            if sample_count > 0 and num_points > 0:
+                # Isolate the current point cloud
+                batch_xyz = xyz[start_idx:end_idx]
+                
+                batch_centroids = torch.zeros(sample_count, dtype=torch.long, device=device)
+                distances = torch.ones(num_points, device=device) * 1e10
+                farthest = torch.randint(0, num_points, (1,), dtype=torch.long, device=device).item()
+                
+                # Perform FPS on the isolated point cloud
+                for i in range(sample_count):
+                    batch_centroids[i] = farthest
+                    centroid = batch_xyz[farthest, :].view(1, 3)
+                    
+                    dist = torch.sum((batch_xyz - centroid) ** 2, dim=-1)
+                    mask = dist < distances
+                    distances[mask] = dist[mask]
+                    
+                    farthest = torch.argmax(distances, dim=-1).item()
+                
+                # Shift the local indices back to global indices and save
+                centroids[out_start_idx:out_end_idx] = batch_centroids + start_idx
+            
+            # Move the starting pointers to the next point cloud
+            start_idx = end_idx
+            out_start_idx = out_end_idx
+            
+        return centroids
 
 @MODELS.register_module()
 class GaussianLifterV2(BaseLifter):

@@ -28,9 +28,11 @@ from matplotlib import cm
 import matplotlib.colors as colors
 from pyquaternion import Quaternion
 from mpl_toolkits.axes_grid1 import ImageGrid
-import os
 
 from model.utils.safe_ops import safe_sigmoid
+from tvtk.api import tvtk
+
+# Ensure get_kitti_colormap and get_kitti360_colormap are imported here if needed!
 
 
 def get_grid_coords(dims, resolution):
@@ -39,11 +41,9 @@ def get_grid_coords(dims, resolution):
     :return coords_grid: is the center coords of voxels in the grid
     """
 
-    g_xx = np.arange(0, dims[0]) # [0, 1, ..., 256]
-    # g_xx = g_xx[::-1]
-    g_yy = np.arange(0, dims[1]) # [0, 1, ..., 256]
-    # g_yy = g_yy[::-1]
-    g_zz = np.arange(0, dims[2]) # [0, 1, ..., 32]
+    g_xx = np.arange(0, dims[0]) 
+    g_yy = np.arange(0, dims[1]) 
+    g_zz = np.arange(0, dims[2]) 
 
     # Obtaining the grid with coords...
     xx, yy, zz = np.meshgrid(g_xx, g_yy, g_zz)
@@ -63,10 +63,8 @@ def save_occ(
         cap=2,
         dataset='nusc'
     ):
+
     if dataset == 'nusc':
-        # voxel_size = [0.4] * 3
-        # vox_origin = [-40.0, -40.0, -1.0]
-        # vmin, vmax = 0, 16
         voxel_size = [0.5] * 3
         vox_origin = [-50.0, -50.0, -5.0]
         vmin, vmax = 0, 16
@@ -115,9 +113,10 @@ def save_occ(
             fov_voxels = fov_grid_coords[
                 (fov_grid_coords[:, 3] > 0) & (fov_grid_coords[:, 3] < 20)
             ]
-    print(len(fov_voxels))
+    print(f"[Status] Rendering {len(fov_voxels)} occupancy voxels...")
     
     figure = mlab.figure(size=(2560, 1440), bgcolor=(1, 1, 1))
+    
     # Draw occupied inside FOV voxels
     voxel_size = sum(voxel_size) / 3
     if not sem:
@@ -161,15 +160,11 @@ def save_occ(
                     [135,  60,   0, 255],       # trailer              brown
                     [160,  32, 240, 255],       # truck                purple                
                     [255,   0, 255, 255],       # driveable_surface    dark pink
-                    # [175,   0,  75, 255],       # other_flat           dark red
-                    [139, 137, 137, 255],
-                    [ 75,   0,  75, 255],       # sidewalk             dard purple
+                    [139, 137, 137, 255],       # other_flat
+                    [ 75,   0,  75, 255],       # sidewalk             dark purple
                     [150, 240,  80, 255],       # terrain              light green          
                     [230, 230, 250, 255],       # manmade              white
                     [  0, 175,   0, 255],       # vegetation           green
-                    # [  0, 255, 127, 255],       # ego car              dark cyan
-                    # [255,  99,  71, 255],       # ego car
-                    # [  0, 191, 255, 255]        # ego car
                 ]
             ).astype(np.uint8)
         elif dataset == 'kitti360':
@@ -178,155 +173,33 @@ def save_occ(
             colors = (get_kitti_colormap()[1:, :] * 255).astype(np.uint8)
 
         plt_plot_fov.module_manager.scalar_lut_manager.lut.table = colors
-    
-    # scene = figure.scene
-    # scene.camera.position = [118.7195754824976, 118.70290907014409, 120.11124225247899]
-    # scene.camera.focal_point = [0.008333206176757812, -0.008333206176757812, 1.399999976158142]
-    # scene.camera.view_angle = 30.0
-    # scene.camera.view_up = [0.0, 0.0, 1.0]
-    # scene.camera.clipping_range = [114.42016931210819, 320.9039783052695]
-    # scene.camera.compute_view_plane_normal()
-    # scene.render()
-    # scene.camera.azimuth(-5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(5)
-    # scene.render()
-    # scene.camera.azimuth(-5)
-    # scene.render()
-    # scene.camera.position = [-138.7379881436844, -0.008333206176756428, 99.5084646673331]
-    # scene.camera.focal_point = [0.008333206176757812, -0.008333206176757812, 1.399999976158142]
-    # scene.camera.view_angle = 30.0
-    # scene.camera.view_up = [0.0, 0.0, 1.0]
-    # scene.camera.clipping_range = [104.37185230017721, 252.84608651497263]
-    # scene.camera.compute_view_plane_normal()
-    # scene.render()
-    # scene.camera.position = [-114.65804807470022, -0.008333206176756668, 82.48137575398867]
-    # scene.camera.focal_point = [0.008333206176757812, -0.008333206176757812, 1.399999976158142]
-    # scene.camera.view_angle = 30.0
-    # scene.camera.view_up = [0.0, 0.0, 1.0]
-    # scene.camera.clipping_range = [75.17498702830105, 222.91192666552377]
-    # scene.camera.compute_view_plane_normal()
-    # scene.render()
-    # scene.camera.position = [-94.75727115818437, -0.008333206176756867, 68.40940144543957]
-    # scene.camera.focal_point = [0.008333206176757812, -0.008333206176757812, 1.399999976158142]
-    # scene.camera.view_angle = 30.0
-    # scene.camera.view_up = [0.0, 0.0, 1.0]
-    # scene.camera.clipping_range = [51.04534630774225, 198.1729515833347]
-    # scene.camera.compute_view_plane_normal()
-    # scene.render()
-    # scene.camera.elevation(5)
-    # scene.camera.orthogonalize_view_up()
-    # scene.render()
-    # scene.camera.position = [-107.15500034628069, -0.008333206176756742, 92.16667026873841]
-    # scene.camera.focal_point = [0.008333206176757812, -0.008333206176757812, 1.399999976158142]
-    # scene.camera.view_angle = 30.0
-    # scene.camera.view_up = [0.6463156430702276, -6.454925414290924e-18, 0.7630701733934554]
-    # scene.camera.clipping_range = [78.84362692774403, 218.2948716014858]
-    # scene.camera.compute_view_plane_normal()
-    # scene.render()
-    # scene.camera.position = [-107.15500034628069, -0.008333206176756742, 92.16667026873841]
-    # scene.camera.focal_point = [0.008333206176757812, -0.008333206176757812, 1.399999976158142]
-    # scene.camera.view_angle = 30.0
-    # scene.camera.view_up = [0.6463156430702277, -6.4549254142909245e-18, 0.7630701733934555]
-    # scene.camera.clipping_range = [78.84362692774403, 218.2948716014858]
-    # scene.camera.compute_view_plane_normal()
-    # scene.render()
-    # scene.camera.elevation(5)
-    # scene.camera.orthogonalize_view_up()
-    # scene.render()
-    # scene.camera.elevation(5)
-    # scene.camera.orthogonalize_view_up()
-    # scene.render()
-    # scene.camera.elevation(-5)
-    # mlab.pitch(-8)
-    # mlab.move(up=15)
-    # scene.camera.orthogonalize_view_up()
-    # scene.render()
 
-    # scene.camera.position = [  0.75131739, -35.08337438,  16.71378558]
-    # scene.camera.focal_point = [  0.75131739, -34.21734897,  16.21378558]
-    # scene.camera.view_angle = 40.0
-    # scene.camera.view_up = [0.0, 0.0, 1.0]
-    # scene.camera.clipping_range = [0.01, 300.]
-    # scene.camera.compute_view_plane_normal()
-    # scene.render()
-
+    # =========================================================================
+    # VIEWING AND SAVING LOGIC
+    # =========================================================================
     # --- STABILIZATION BLOCK ---
-    # 1. Force a pipeline flush to "wake up" the VTK renderer
-    # mlab.draw() 
+    # 8 invisible corners to force a perfect 100x100x10 symmetric bounding box
+    b_x = [-50,  50, 50, -50, -50,  50, 50, -50]
+    b_y = [-50, -50, 50,  50, -50, -50, 50,  50]
+    b_z = [-5,  -5, -5,  -5,   5,   5,  5,   5]
+    mlab.points3d(b_x, b_y, b_z, scale_factor=1e-5, color=(1,1,1))
 
-    # 2. Use slightly more "robust" anchors (tiny white dots instead of 0 opacity)
-    # This ensures VTK's bounding box calculation doesn't ignore them.
-    mlab.points3d([-50, 50], [50, -50], [-5, 3], scale_factor=0.01, color=(1,1,1))
-
-    # 3. Set the view TWICE with a larger distance (220-250 fits NuScenes better)
-    # The first call initializes, the second call locks it for Sample 0.
-    mlab.view(azimuth=155, elevation=70, distance=220, focalpoint=[0, 0, 0])
-    # mlab.draw() # Force the camera to update in the buffer
-    # ---------------------------
+    # Nudge the camera target to push the scene UP and RIGHT into the perfect center
+    mlab.view(azimuth=150, elevation=70, distance=180, focalpoint=[0, 0, 0])
+    mlab.draw() 
 
     filepath = os.path.join(save_dir, f'{name}.png')
+    
     if offscreen:
         mlab.savefig(filepath)
+        mlab.close(figure_mlab if 'figure_mlab' in locals() else figure)
+        print(f"[Status] Saved offline snapshot to {filepath}")
     else:
+        mlab.savefig(filepath)
+        print(f"[Status] Saved snapshot to {filepath}. Launching interactive window...")
         mlab.show()
-    mlab.close()
+        mlab.close(figure_mlab if 'figure_mlab' in locals() else figure)
+
 
 def get_nuscenes_colormap():
     colors = np.array(
@@ -343,15 +216,11 @@ def get_nuscenes_colormap():
             [135,  60,   0, 255],       # trailer              brown
             [160,  32, 240, 255],       # truck                purple                
             [255,   0, 255, 255],       # driveable_surface    dark pink
-            # [175,   0,  75, 255],       # other_flat           dark red
-            [139, 137, 137, 255],
+            [139, 137, 137, 255],       # other_flat
             [ 75,   0,  75, 255],       # sidewalk             dard purple
             [150, 240,  80, 255],       # terrain              light green          
             [230, 230, 250, 255],       # manmade              white
             [  0, 175,   0, 255],       # vegetation           green
-            # [  0, 255, 127, 255],       # ego car              dark cyan
-            # [255,  99,  71, 255],       # ego car
-            # [  0, 191, 255, 255]        # ego car
         ]
     ).astype(np.float32) / 255.
     return colors
@@ -391,70 +260,127 @@ def save_gaussian(save_dir, gaussian, name, scalar=1.5, ignore_opa=False, filter
         z_small_mask = scales[:, 2] > 0.1
         mask = z_small_mask & mask
 
-
     means = means[mask]
     scales = scales[mask]
     rotations = rotations[mask]
     opas = opas[mask]
     pred = pred[mask]
 
-    # number of ellipsoids 
     ellipNumber = means.shape[0]
 
-    #set colour map so each ellipsoid as a unique colour
-    norm = colors.Normalize(vmin=-1.0, vmax=5.4)
-    cmap = cm.jet
-    m = cm.ScalarMappable(norm=norm, cmap=cmap)
+    # =========================================================================
+    # MAYAVI RENDERING ENGINE (Runs Universally, C++ Vectorized)
+    # =========================================================================
+    figure_mlab = mlab.figure(size=(2560, 1440), bgcolor=(1, 1, 1))
+    figure_mlab.scene.disable_render = True 
 
-    fig = plt.figure(figsize=(9, 9), dpi=300)
-    ax = fig.add_subplot(111, projection='3d')
-    ax.view_init(elev=46, azim=-180)
+    # Safety cap for memory
+    max_gaussians = 50000 
+    
+    if ellipNumber > max_gaussians:
+        print(f"[Status] Decimating {ellipNumber} Gaussians down to {max_gaussians} for rendering...")
+        idx = np.random.choice(ellipNumber, max_gaussians, replace=False)
+        means_m = means[idx]
+        scales_m = scales[idx]
+        rotations_m = rotations[idx]
+        opas_m = opas[idx]
+        pred_m = pred[idx]
+        render_count = max_gaussians
+    else:
+        means_m = means
+        scales_m = scales
+        rotations_m = rotations
+        opas_m = opas
+        pred_m = pred
+        render_count = ellipNumber
 
-    # compute each and plot each ellipsoid iteratively
-    border = np.array([
-        [-50.0, -50.0, 0.0],
-        [-50.0, 50.0, 0.0],
-        [50.0, -50.0, 0.0],
-        [50.0, 50.0, 0.0],
-    ])
-    ax.plot_surface(border[:, 0:1], border[:, 1:2], border[:, 2:], 
-        rstride=1, cstride=1, color=[0, 0, 0, 1], linewidth=0, alpha=0., shade=True)
+    print(f"[Status] Vectorizing 3D geometry for {render_count} Gaussians using C++ TensorGlyphs...")
 
-    for indx in range(ellipNumber):
-        
-        center = means[indx]
-        radii = scales[indx] * scalar
-        rot_matrix = rotations[indx]
-        rot_matrix = Quaternion(rot_matrix).rotation_matrix.T
+    # 1. Swap X and Y to match Occupancy Grid Orientation
+    means_aligned = np.zeros_like(means_m)
+    means_aligned[:, 0] = means_m[:, 1]  
+    means_aligned[:, 1] = -means_m[:, 0] 
+    means_aligned[:, 2] = means_m[:, 2]  
 
-        # calculate cartesian coordinates for the ellipsoid surface
-        u = np.linspace(0.0, 2.0 * np.pi, 10)
-        v = np.linspace(0.0, np.pi, 10)
-        x = radii[0] * np.outer(np.cos(u), np.sin(v))
-        y = radii[1] * np.outer(np.sin(u), np.sin(v))
-        z = radii[2] * np.outer(np.ones_like(u), np.cos(v))
+    # 2. Vectorize Covariance Matrices
+    rot_mats = np.array([Quaternion(r).rotation_matrix.T for r in rotations_m])
+    
+    S_mats = np.zeros((render_count, 3, 3))
+    S_mats[:, 0, 0] = scales_m[:, 0] * scalar
+    S_mats[:, 1, 1] = scales_m[:, 1] * scalar
+    S_mats[:, 2, 2] = scales_m[:, 2] * scalar
+    
+    covs = rot_mats @ S_mats @ rot_mats.transpose(0, 2, 1)
 
-        xyz = np.stack([x, y, z], axis=-1) # phi, theta, 3
-        xyz = rot_matrix[None, None, ...] @ xyz[..., None]
-        xyz = np.squeeze(xyz, axis=-1)
+    # 3. Apply the 90-degree spatial rotation to the Covariance Tensors
+    T = np.array([
+        [ 0,  1,  0], 
+        [-1,  0,  0], 
+        [ 0,  0,  1]
+    ], dtype=np.float32)
+    
+    covs = T @ covs @ T.T
 
-        xyz = xyz + center[None, None, ...]
+    # 4. Build the C++ VTK PolyData Array
+    pts = tvtk.PolyData(points=means_aligned)
+    pts.point_data.tensors = covs.reshape(-1, 9)
+    pts.point_data.tensors.name = 'tensors'
+    
+    # Cast to float32 to prevent the "All Blue" VTK bug
+    pts.point_data.scalars = pred_m.astype(np.float32)
+    pts.point_data.scalars.name = 'semantics'
 
-        ax.plot_surface(
-            xyz[..., 1], -xyz[..., 0], xyz[..., 2], 
-            rstride=1, cstride=1, color=sem_cmap[pred[indx]], linewidth=0, alpha=opas[indx], shade=True)
+    src = mlab.pipeline.add_dataset(pts)
+    sphere = tvtk.SphereSource(radius=1.0, phi_resolution=6, theta_resolution=6)
+    
+    tg = tvtk.TensorGlyph(
+        scale_factor=1.0,
+        extract_eigenvalues=True,
+        color_glyphs=True,
+        color_mode='scalars' 
+    )
+    tg.set_source_connection(sphere.output_port)
+    
+    glyph_filter = mlab.pipeline.user_defined(src, filter=tg)
+    surf = mlab.pipeline.surface(glyph_filter)
 
-    # plt.axis("equal")
-    plt.axis("auto")
-    # plt.gca().set_box_aspect([1, 1, 1])
-    ax.grid(False)
-    ax.set_axis_off()    
+    # Enforce exact NuScenes Colormap mapping
+    lut = surf.module_manager.scalar_lut_manager.lut.table.to_array()
+    n_colors = len(sem_cmap)
+    lut[:n_colors, :3] = (sem_cmap * 255).astype(np.uint8)[:, :3]
+    lut[:n_colors, 3] = 255 
+    
+    surf.module_manager.scalar_lut_manager.lut.table = lut
+    surf.module_manager.scalar_lut_manager.use_default_range = False
+    surf.module_manager.scalar_lut_manager.data_range = [0.0, 255.0]
+
+    figure_mlab.scene.disable_render = False
+
+    # =========================================================================
+    # VIEWING AND SAVING LOGIC
+    # =========================================================================
+    # --- STABILIZATION BLOCK ---
+    # 8 invisible corners to force a perfect 100x100x10 symmetric bounding box
+    b_x = [-50,  50, 50, -50, -50,  50, 50, -50]
+    b_y = [-50, -50, 50,  50, -50, -50, 50,  50]
+    b_z = [-5,  -5, -5,  -5,   5,   5,  5,   5]
+    mlab.points3d(b_x, b_y, b_z, scale_factor=1e-5, color=(1,1,1))
+
+    # Nudge the camera target to push the scene UP and RIGHT into the perfect center
+    mlab.view(azimuth=150, elevation=70, distance=180, focalpoint=[0, 0, 0])
+    mlab.draw() 
 
     filepath = os.path.join(save_dir, f'{name}.png')
-    plt.savefig(filepath)
-
-    plt.cla()
-    plt.clf()
+    
+    if offscreen:
+        mlab.savefig(filepath)
+        mlab.close(figure_mlab if 'figure_mlab' in locals() else figure)
+        print(f"[Status] Saved offline snapshot to {filepath}")
+    else:
+        mlab.savefig(filepath)
+        print(f"[Status] Saved snapshot to {filepath}. Launching interactive window...")
+        mlab.show()
+        mlab.close(figure_mlab if 'figure_mlab' in locals() else figure)
 
 def save_gaussian_topdown(save_dir, anchor_init, gaussian, name):
     init_means = safe_sigmoid(anchor_init[:, :2]) * 100 - 50
@@ -462,16 +388,15 @@ def save_gaussian_topdown(save_dir, anchor_init, gaussian, name):
 
     plt.clf(); plt.cla()
     fig = plt.figure(figsize=(24., 16.))
-    grid = ImageGrid(fig, 111,  # similar to subplot(111)
-                    nrows_ncols=(1, 5),  # creates 2x2 grid of Axes
-                    axes_pad=0.,  # pad between Axes in inch.
+    grid = ImageGrid(fig, 111,  
+                    nrows_ncols=(1, 5),  
+                    axes_pad=0.,  
                     share_all=True
                     )
     grid[0].get_yaxis().set_ticks([])
     grid[0].get_xaxis().set_ticks([])
     for ax, im in zip(grid, means):
         im = im.cpu()
-        # Iterating over the grid returns the Axes.
         ax.scatter(im[:, 0], im[:, 1], s=0.1, marker='o')
     plt.savefig(os.path.join(save_dir, f"{name}.jpg"))
-    plt.clf(); plt.cla()
+    plt.close(fig)

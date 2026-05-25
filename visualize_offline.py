@@ -1,5 +1,5 @@
 try:
-    from vis import save_occ, save_gaussian, save_gaussian_topdown
+    from vis_offline import save_occ, save_gaussian, save_gaussian_topdown
     from mayavi import mlab
 except:
     print('Load Occupancy Visualization Tools Failed.')
@@ -70,6 +70,7 @@ def main(local_rank, args):
 
     # build model
     import model
+    from model.segmentor.bev_segmentor_offline import GaussianContainer
     from dataset import get_dataloader
 
     my_model = build_segmentor(cfg.model)
@@ -94,25 +95,13 @@ def main(local_rank, args):
         raw_model = my_model
     logger.info('done ddp model')
 
-    # cfg.val_dataset_config.update({
-    #     "vis_indices": args.vis_index,
-    #     "num_samples": args.num_samples,
-    #     "vis_scene_index": args.vis_scene_index})
-
-    # train_dataset_loader, val_dataset_loader = get_dataloader(
-    #     cfg.train_dataset_config,
-    #     cfg.val_dataset_config,
-    #     cfg.train_loader,
-    #     cfg.val_loader,
-    #     dist=distributed,
-    #     val_only=True)
-    
-    # Force the train loader to be completely sequential (No Shuffling)
-    cfg.train_loader['shuffle'] = False
-    cfg.train_loader.update({
+    cfg.val_dataset_config.update({
         "vis_indices": args.vis_index,
         "num_samples": args.num_samples,
         "vis_scene_index": args.vis_scene_index})
+
+    # Force the train loader to be completely sequential (No Shuffling)
+    cfg.train_loader['shuffle'] = False
     
     train_dataset_loader, val_dataset_loader = get_dataloader(
         cfg.train_dataset_config,
@@ -122,7 +111,7 @@ def main(local_rank, args):
         dist=distributed,
         train_sampler_config=dict(shuffle=False, drop_last=False),
         val_only=False) # <--- Set to False to build the train wrapper!
-
+    
     # resume and load
     cfg.resume_from = ''
     if osp.exists(osp.join(args.work_dir, 'latest.pth')):
@@ -133,25 +122,25 @@ def main(local_rank, args):
     logger.info('resume from: ' + cfg.resume_from)
     logger.info('work dir: ' + args.work_dir)
 
-    if cfg.resume_from and osp.exists(cfg.resume_from):
-        map_location = 'cpu'
-        ckpt = torch.load(cfg.resume_from, map_location=map_location)
-        try:
-            # raw_model.load_state_dict(ckpt['state_dict'], strict=True)
-            raw_model.load_state_dict(ckpt.get('state_dict', ckpt), strict=True)
-        except:
-            os.system(f"python modify_weight.py --work-dir {args.work_dir} --epoch {args.epoch}")
-            cfg.resume_from = os.path.join(args.work_dir, f"epoch_{args.epoch}_mod.pth")
-            ckpt = torch.load(cfg.resume_from, map_location=map_location)
-            raw_model.load_state_dict(ckpt['state_dict'], strict=True)
-        print(f'successfully resumed.')
-    elif cfg.load_from:
-        ckpt = torch.load(cfg.load_from, map_location='cpu')
-        if 'state_dict' in ckpt:
-            state_dict = ckpt['state_dict']
-        else:
-            state_dict = ckpt
-        print(raw_model.load_state_dict(state_dict, strict=False))
+    # if cfg.resume_from and osp.exists(cfg.resume_from):
+    #     map_location = 'cpu'
+    #     ckpt = torch.load(cfg.resume_from, map_location=map_location)
+    #     try:
+    #         # raw_model.load_state_dict(ckpt['state_dict'], strict=True)
+    #         raw_model.load_state_dict(ckpt.get('state_dict', ckpt), strict=True)
+    #     except:
+    #         os.system(f"python modify_weight.py --work-dir {args.work_dir} --epoch {args.epoch}")
+    #         cfg.resume_from = os.path.join(args.work_dir, f"epoch_{args.epoch}_mod.pth")
+    #         ckpt = torch.load(cfg.resume_from, map_location=map_location)
+    #         raw_model.load_state_dict(ckpt['state_dict'], strict=True)
+    #     print(f'successfully resumed.')
+    # elif cfg.load_from:
+    #     ckpt = torch.load(cfg.load_from, map_location='cpu')
+    #     if 'state_dict' in ckpt:
+    #         state_dict = ckpt['state_dict']
+    #     else:
+    #         state_dict = ckpt
+    #     print(raw_model.load_state_dict(state_dict, strict=False))
         
     print_freq = cfg.print_freq
     from misc.metric_util import MeanIoU
@@ -170,9 +159,6 @@ def main(local_rank, args):
     if args.vis_occ or args.vis_gaussian or args.vis_gaussian_topdown:
         save_dir = os.path.join(args.work_dir, f'vis_ep{args.epoch}')
         os.makedirs(save_dir, exist_ok=True)
-
-        # pre_warm_mayavi()
-
     if args.model_type == "base":
         draw_gaussian_params = dict(
             scalar = 1.5,
@@ -201,7 +187,35 @@ def main(local_rank, args):
                 ori_img.save(os.path.join(save_dir, f'{i_iter_val}_image_{i}.png'))
             
             # breakpoint()
-            result_dict = my_model(imgs=input_imgs, metas=data)
+            # result_dict = my_model(imgs=input_imgs, metas=data)
+        
+            # =================================================================
+            # OFFLINE SCENE LOADING & VISUALIZATION BYPASS
+            # =================================================================
+            ckpt_path = f"/home/junn/Junn/GaussianFormer/out/nuscenes_gs25600_offline/scenes/scene_{i_iter_val}.pth"
+                
+            if not os.path.exists(ckpt_path):
+                if local_rank == 0:
+                    logger.info(f"Scene {i_iter_val} not found at {ckpt_path}. Ending visualization loop.")
+                break
+
+            # Load the specific scene's optimized MAP estimate
+            x_bar = torch.load(ckpt_path, map_location='cuda')
+            
+            # Route the explicit parameters directly through the custom forward pass
+            result_dict = raw_model(x_bar=x_bar, metas=data)
+            
+            gaussian_container = GaussianContainer(
+                x_bar, 
+                pc_range=raw_model.pc_range, 
+                scale_range=raw_model.scale_range, 
+                include_opa=raw_model.include_opa
+            )
+            
+            # Pack the container so save_gaussian() can extract the physical geometry
+            result_dict['gaussian'] = gaussian_container
+            # =================================================================
+
             for idx, pred in enumerate(result_dict['final_occ']):
                 pred_occ = pred
                 gt_occ = result_dict['sampled_label'][idx]
@@ -234,15 +248,7 @@ def main(local_rank, args):
             
             if i_iter_val % print_freq == 0 and local_rank == 0:
                 logger.info('[EVAL] Iter %5d'%(i_iter_val))
-
-            # ==========================================
-            # ADD THIS BLOCK TO GET INSTANT METRICS
-            # ==========================================
-            if i_iter_val == 0:
-                print("\n[Status] First scene complete! Calculating metrics...")
-                break 
-            # ==========================================
-
+                    
     miou, iou2 = miou_metric._after_epoch()
     logger.info(f'mIoU: {miou}, iou2: {iou2}')
     miou_metric.reset()

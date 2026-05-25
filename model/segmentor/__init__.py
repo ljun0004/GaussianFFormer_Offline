@@ -1,2 +1,3 @@
 from .base_segmentor import CustomBaseSegmentor
 from .bev_segmentor import BEVSegmentor
+from .bev_segmentor_offline import InverseGraphicsSegmentor, GaussianContainer

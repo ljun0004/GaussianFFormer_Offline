@@ -116,7 +116,8 @@ class GaussianHead(BaseTaskHead):
         R = get_rotation_matrix(rotations) # b, g, 3, 3
         M = torch.matmul(S, R)
         Cov = torch.matmul(M.transpose(-1, -2), M)
-        CovInv = Cov.cpu().inverse().cuda() # b, g, 3, 3
+        # CovInv = Cov.cpu().inverse().cuda() # b, g, 3, 3
+        CovInv = Cov.float().cpu().inverse().cuda().to(Cov.dtype) # Upcast for math, downcast for speed
         return means, origi_opa, opacities, scales, CovInv
 
     def forward(
@@ -156,11 +157,11 @@ class GaussianHead(BaseTaskHead):
 
             semantics = self.aggregator(
                 sampled_xyz.clone().float(), 
-                means, 
-                origi_opa.reshape(bs, g),
-                opacities,
-                scales,
-                CovInv) # 1, c, n
+                means.float(), 
+                origi_opa.reshape(bs, g).float(),
+                opacities.float(),
+                scales.float(),
+                CovInv.float()) # 1, c, n
             if self.use_localaggprob:
                 if self.combine_geosem:
                     sem = semantics[0][:, :-1] * semantics[1].unsqueeze(-1)
