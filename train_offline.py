@@ -50,7 +50,6 @@ def main(local_rank, args):
         os.makedirs(osp.join(args.work_dir, 'scenes'), exist_ok=True)
         cfg.dump(osp.join(args.work_dir, osp.basename(args.py_config)))
         
-        # ADDED: Initialize TensorBoard writer
         from misc.tb_wrapper import WrappedTBWriter
         writer = WrappedTBWriter('selfocc', log_dir=osp.join(args.work_dir, 'tf'))
         WrappedTBWriter._instance_dict['selfocc'] = writer
@@ -70,20 +69,16 @@ def main(local_rank, args):
     from dataset import get_dataloader
     from loss import OPENOCC_LOSS
 
-    # We build the model but DO NOT wrap it in DistributedDataParallel (DDP).
-    # We are optimizing scene parameters locally on each GPU, not syncing network weights.
     my_model = build_segmentor(cfg.model).cuda()
-    my_model.eval()  # Permanently freeze dropout and batch norms
+    my_model.eval()  
     
     for p in my_model.parameters():
         p.requires_grad = False
 
-    # Force the train loader to be completely sequential (No Shuffling)
-    cfg.train_loader['batch_size'] = 1  # Process one scene at a time for MAP optimization
-    cfg.train_loader['num_workers'] = 8  # Adjust based on your CPU capabilities
-    cfg.train_loader['shuffle'] = False # Critical for ensuring each GPU processes a unique scene without overlap
+    cfg.train_loader['batch_size'] = 1  
+    cfg.train_loader['num_workers'] = 8  
+    cfg.train_loader['shuffle'] = False 
 
-    # The dataloader's DistributedSampler automatically assigns different scenes to different GPUs    
     train_dataset_loader, val_dataset_loader = get_dataloader(
         cfg.train_dataset_config,
         cfg.val_dataset_config,
@@ -99,7 +94,7 @@ def main(local_rank, args):
     # =========================================================================
     # 3. PER-SCENE MAP OPTIMIZATION LOOP
     # =========================================================================
-    optimization_steps = 4000   
+    optimization_steps = 2000   
     learning_rate = 0.005
 
     total_frames_local = len(train_dataset_loader)
@@ -109,41 +104,54 @@ def main(local_rank, args):
         logger.info(f"Starting Inverse-Graphics Offline Extraction.")
         logger.info(f"Total Frames per GPU: {total_frames_local} | Total Global Frames: {total_frames_global}")
 
+    # Pre-create the directory so all GPU threads have a valid path to verify against
+    ckpt_dir = osp.join(args.work_dir, 'ckpts') 
+    if local_rank == 0:
+        os.makedirs(ckpt_dir, exist_ok=True)
+
     for i_iter, data in enumerate(train_dataset_loader):
         global_scene_id = i_iter * world_size + local_rank
         current_frame = i_iter + 1
+
+        # ---------------------------------------------------------------------
+        # MODIFICATION 1: CHECK FOR EXISTING SCENE BEFORE ALLOCATING VRAM
+        # ---------------------------------------------------------------------
+        # Extract token early without destroying the original dictionary structure
+        real_scene_id = data['sample_idx'][0]
+        save_path = osp.join(ckpt_dir, f'idx_{global_scene_id}_token_{real_scene_id}.pth')
+
+        if osp.exists(save_path):
+            if local_rank == 0:
+                logger.info(f"  -> Skipping Frame [{current_frame}/{total_frames_local}] (ID: {real_scene_id}) - Checkpoint already exists.")
+            continue
 
         # 1. Push structural ground truth tokens and images to device
         for k in list(data.keys()):
             if isinstance(data[k], torch.Tensor):
                 data[k] = data[k].cuda()
         
-        # Pop the image tensor explicitly as dictated by the original data flow
         input_imgs = data.pop('img')
-        
-        real_scene_id = data.pop('sample_idx')[0]
+        real_scene_id = data.pop('sample_idx')[0] 
         
         # ---------------------------------------------------------------------
-        # PHASE 1: THE WARM START (Bypassing the Encoder)
+        # PHASE 1: THE WARM START 
         # ---------------------------------------------------------------------
         time_s = time.time()
         
-        # OPTION A: Use the Distribution-Based Initializer (Warm Start)
         x_bar = my_model.get_warm_start(imgs=input_imgs, metas=data)
-        # OPTION B: Bypass the lifter for a purely mathematical scatter (Cold Start)
-        # x_bar = my_model.get_cold_start(imgs=input_imgs, metas=data)
-
-        # Spin up an isolated optimizer exclusively for this scene's geometry
         optimizer = torch.optim.Adam([x_bar], lr=learning_rate)
         # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         #             optimizer, 
         #             T_max=optimization_steps, 
         #             eta_min=1e-4
         #         )
-        
+
         if local_rank == 0:
-            num_anchors = cfg.model.lifter.num_anchor
-            num_random = cfg.model.lifter.random_samples
+            try:
+                num_anchors = cfg.model.lifter.num_anchor
+                num_random = cfg.model.lifter.random_samples
+            except AttributeError:
+                num_anchors, num_random = "Unknown", "Unknown"
 
             logger.info(f"\n=======================================================")
             logger.info(f"Optimizing MAP Estimate | Frame Progress: [{current_frame}/{total_frames_local}] | nuScenes ID: {real_scene_id}")
@@ -158,12 +166,15 @@ def main(local_rank, args):
         previous_loss = float('inf')
         patience_counter = 0
         
+        # MODIFICATION 2A: Initialize trackers for the lowest loss state
+        best_loss = float('inf')
+        best_x_bar = None
+        
         scaler = torch.cuda.amp.GradScaler()
 
         for step in range(optimization_steps):
             optimizer.zero_grad()
 
-            # Wrap the forward pass and loss computation in AMP
             with torch.autocast(device_type='cuda', dtype=torch.float16):
                 result_dict = my_model(x_bar=x_bar, metas=data)
 
@@ -173,29 +184,36 @@ def main(local_rank, args):
 
                 loss, loss_dict = loss_func(loss_input)
             
-            # Scale the loss and step
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
+            # scheduler.step()
 
-            # Logging Telemetry & TensorBoard Visualization
+            current_loss = loss.item()
+
+            # -----------------------------------------------------------------
+            # MODIFICATION 2B: RECORD THE BEST TENSOR WEIGHTS
+            # -----------------------------------------------------------------
+            if current_loss < best_loss:
+                best_loss = current_loss
+                # .clone().detach().cpu() safely locks the weights into RAM 
+                # without polluting VRAM or keeping the gradient graph alive
+                best_x_bar = x_bar.clone().detach().cpu() 
+
+            # Logging Telemetry
             if step % 100 == 0 and local_rank == 0:
-                # Extract the current learning rate
                 current_lr = optimizer.param_groups[0]['lr']
-                
                 detailed_loss = ', '.join([f'{k}: {v:.4f}' for k, v in loss_dict.items()])
+                logger.info(f'  [Frame {current_frame}/{total_frames_local}] [Step {step:4d}/{optimization_steps}] LR: {current_lr:.6f} | Patience Counter: {patience_counter:3d} | Total Loss: {current_loss:.4f} | {detailed_loss}')                
                 
-                logger.info(f'  [Frame {current_frame}/{total_frames_local}] [Step {step:4d}/{optimization_steps}] LR: {current_lr:.6f} | Patience Counter: {patience_counter:3d} | Total Loss: {loss.item():.4f} | {detailed_loss}')                
-                
-                # Output visualizations to TensorBoard
                 if writer is not None:
-                    writer.add_scalar(f'Loss_Scene_{global_scene_id}/total_loss', loss.item(), step)
+                    writer.add_scalar(f'Loss_Scene_{global_scene_id}/total_loss', current_loss, step)
                     writer.add_scalar(f'Loss_Scene_{global_scene_id}/learning_rate', current_lr, step)
                     for k, v in loss_dict.items():
                         writer.add_scalar(f'Loss_Scene_{global_scene_id}/{k}', v, step)
 
             # Early Stopping Trigger
-            if abs(previous_loss - loss.item()) < 5e-4:
+            if abs(previous_loss - current_loss) < 1e-4:
                 patience_counter += 1
                 if patience_counter >= 100:
                     if local_rank == 0:
@@ -203,34 +221,24 @@ def main(local_rank, args):
                     break
             else:
                 patience_counter = 0
-            previous_loss = loss.item()
+            previous_loss = current_loss
             
         time_e = time.time()
         
         # ---------------------------------------------------------------------
         # PHASE 3: ASSET EXPORT
         # ---------------------------------------------------------------------
-        # Changed 'ckpts' to 'scenes' or keep 'ckpts' based on your folder preferences
-        ckpt_dir = osp.join(args.work_dir, 'ckpts') 
-        os.makedirs(ckpt_dir, exist_ok=True)
-
-        # Package parameters and metadata together
+        # MODIFICATION 2C: Save the lowest-loss snapshot, not the current one
         export_payload = {
-            'token': real_scene_id,                # The definitive Sample Token (UUID)
-            'global_id': global_scene_id,          # Keep this inside for training logs
-            'x_bar': x_bar.detach().cpu(),         # Your optimized Gaussian tensor
+            'token': real_scene_id,                
+            'global_id': global_scene_id,          
+            'x_bar': best_x_bar,                   # Now saving the best recorded state
         }
-
-        # RECOMMENDED NAMING: Uses the token first, so your dataloader can find it instantly
-        # save_path = osp.join(scenes_dir, f'scene_{real_scene_id}.pth')
-        
-        # ALTERNATIVE NAMING (If you want both visible on disk):
-        save_path = osp.join(ckpt_dir, f'idx_{global_scene_id}_token_{real_scene_id}.pth')
 
         torch.save(export_payload, save_path)
         
         if local_rank == 0:
-            logger.info(f'Frame [{current_frame}/{total_frames_local}] (ID: {real_scene_id}) converged in {time_e - time_s:.2f}s. Saved -> {save_path}')    
+            logger.info(f'Frame [{current_frame}/{total_frames_local}] (ID: {real_scene_id}) converged in {time_e - time_s:.2f}s with Lowest Loss: {best_loss:.4f}. Saved -> {save_path}')    
     
     if writer is not None:
         writer.close()
