@@ -171,3 +171,6 @@ launch_phigent.sh
 modify_weight.py
 *.npy
 epoch2sd.py
+logs
+.compiled_fat_binary
+docs/prep_data-*.out

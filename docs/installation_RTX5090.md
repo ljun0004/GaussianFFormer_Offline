@@ -56,7 +56,7 @@ pip install mmdet3d==1.4.0
 ## 4. Install Other Packages
 *Note: We use `spconv-cu121` as it bridges perfectly with the 13.0 toolkit while waiting for native 13.0 wheel releases.*
 ```bash
-pip install spconv-cu121 timm ftfy regex
+pip install spconv-cu121 timm ftfy regex einops jaxtyping "numpy<2.0.0"
 ```
 
 ## 5. Install Custom CUDA Ops (Gaussian Rendering)

@@ -116,8 +116,14 @@ class GaussianHead(BaseTaskHead):
         R = get_rotation_matrix(rotations) # b, g, 3, 3
         M = torch.matmul(S, R)
         Cov = torch.matmul(M.transpose(-1, -2), M)
+        # --- NEW: Add epsilon to the diagonal to prevent singular matrices ---
+        eps = 1e-6
+        eye = torch.eye(3, device=Cov.device, dtype=Cov.dtype).view(1, 1, 3, 3)
+        Cov_stable = Cov + (eye * eps)
+        # ---------------------------------------------------------------------
         # CovInv = Cov.cpu().inverse().cuda() # b, g, 3, 3
-        CovInv = Cov.float().cpu().inverse().cuda().to(Cov.dtype) # Upcast for math, downcast for speed
+        # Use Cov_stable for the inversion
+        CovInv = Cov_stable.float().cpu().inverse().cuda().to(Cov.dtype) 
         return means, origi_opa, opacities, scales, CovInv
 
     def forward(
