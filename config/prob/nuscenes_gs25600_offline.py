@@ -63,7 +63,7 @@ scale_range = [0.01, 1.8]
 xyz_coordinate = 'cartesian'
 phi_activation = 'sigmoid'
 include_opa = True
-load_from = 'ckpts/r101_dcn_fcos3d_pretrain.pth'
+load_from = None
 semantics = True
 semantic_dim = 17
 
@@ -77,21 +77,23 @@ model = dict(
     include_opa=True,
     freeze_lifter=True,
     img_backbone_out_indices=[0, 1, 2, 3],
-    img_backbone=dict(
-        _delete_=True,
-        type='ResNet',
-        depth=101,
-        num_stages=4,
-        out_indices=(0, 1, 2, 3),
-        frozen_stages=1,
-        norm_cfg=dict(type='BN2d', requires_grad=False),
-        norm_eval=True,
-        style='caffe',
-        with_cp=True,
-        dcn=dict(type='DCNv2', deform_groups=1, fallback_on_stride=False),
-        stage_with_dcn=(False, False, True, True)),
-    img_neck=dict(
-        start_level=1),
+    # img_backbone=dict(
+    #     _delete_=True,
+    #     type='ResNet',
+    #     depth=101,
+    #     num_stages=4,
+    #     out_indices=(0, 1, 2, 3),
+    #     frozen_stages=1,
+    #     norm_cfg=dict(type='BN2d', requires_grad=False),
+    #     norm_eval=True,
+    #     style='caffe',
+    #     with_cp=True,
+    #     dcn=dict(type='DCNv2', deform_groups=1, fallback_on_stride=False),
+    #     stage_with_dcn=(False, False, True, True)),
+    # img_neck=dict(
+    #     start_level=1),
+    img_backbone=None,
+    img_neck=None,
     lifter=dict(
         type='GaussianLifterV2',
         num_anchor=19200,

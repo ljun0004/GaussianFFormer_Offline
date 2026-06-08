@@ -115,15 +115,20 @@ class GaussianHead(BaseTaskHead):
         S[..., 2, 2] = scales[..., 2]
         R = get_rotation_matrix(rotations) # b, g, 3, 3
         M = torch.matmul(S, R)
+
+        # 1. Calculate Covariance
         Cov = torch.matmul(M.transpose(-1, -2), M)
-        # --- NEW: Add epsilon to the diagonal to prevent singular matrices ---
+        
+        # 2. Add epsilon stabilization directly on the GPU
         eps = 1e-6
         eye = torch.eye(3, device=Cov.device, dtype=Cov.dtype).view(1, 1, 3, 3)
         Cov_stable = Cov + (eye * eps)
-        # ---------------------------------------------------------------------
-        # CovInv = Cov.cpu().inverse().cuda() # b, g, 3, 3
-        # Use Cov_stable for the inversion
-        CovInv = Cov_stable.float().cpu().inverse().cuda().to(Cov.dtype) 
+        
+        # 3. FAST GPU INVERSION: Do not move to CPU!
+        # We cast to float32 first because GPU MAGMA solvers prefer FP32 for inversions
+        # CovInv = Cov_stable.float().cpu().inverse().cuda().to(Cov.dtype)
+        CovInv = torch.linalg.inv(Cov_stable.float()).to(Cov.dtype)
+        
         return means, origi_opa, opacities, scales, CovInv
 
     def forward(
@@ -202,4 +207,3 @@ class GaussianHead(BaseTaskHead):
             'gaussian': representation[-1]['gaussian'],
             'gaussians': [r['gaussian'] for r in representation]
         }
-

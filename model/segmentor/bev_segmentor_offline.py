@@ -163,8 +163,8 @@ class InverseGraphicsSegmentor(CustomBaseSegmentor):
         """
         with torch.no_grad():
             results = {'imgs': imgs, 'metas': metas}
-            outs = self.extract_img_feat(imgs=imgs)
-            results.update(outs)
+            # outs = self.extract_img_feat(imgs=imgs)
+            # results.update(outs)
             
             outs = self.lifter(**results)
             x_bar_init = outs['representation'].clone().detach()

@@ -155,6 +155,8 @@ LIBGL_ALWAYS_INDIRECT=1 DISP=t CUDA_VISIBLE_DEVICES=0 python visualize_offline.p
     --vis-gaussian \
     --model-type base
 
+python eval_offline.py --py-config config/nuscenes_gs25600_offline.py --scenes-dir ./out/nuscenes_gs25600_offline/scenes
+
 ```
 ***cd
 

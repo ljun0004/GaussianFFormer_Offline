@@ -5,8 +5,8 @@
 #SBATCH --output=logs/job-%j.out
 ##SBATCH --error=logs/job-%j.err
 
-##SBATCH --gpus=pro6000:8 -C highmem
-#SBATCH --gpus=pro6000:8
+##SBATCH --gpus=pro6000:4 -C highmem
+#SBATCH --gpus=pro6000:4
 
 # REQUIRED: Project accounting and priority
 #SBATCH -A faculty-proj
@@ -88,8 +88,15 @@ fi
 # 6. Launch the job using modern PyTorch DDP
 echo "Starting distributed extraction on $NPROC_PER_NODE GPUs..."
 
-torchrun --nproc_per_node=$NPROC_PER_NODE train_offline.py \
+# torchrun --nproc_per_node=$NPROC_PER_NODE train_offline.py \
+#     --py-config config/prob/nuscenes_gs25600_offline.py \
+#     --work-dir out/nuscenes_gs25600_offline/
+
+torchrun --nproc_per_node=$NPROC_PER_NODE eval_offline.py \
     --py-config config/prob/nuscenes_gs25600_offline.py \
     --work-dir out/nuscenes_gs25600_offline/
 
-```
+# 7. Job Completion Notification
+echo "========================================"
+echo "The torchrun job has successfully finished!"
+echo "========================================"

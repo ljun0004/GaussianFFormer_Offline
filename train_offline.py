@@ -1,3 +1,4 @@
+import sys
 import time, argparse, os.path as osp, os
 import math
 import torch, numpy as np
@@ -100,10 +101,10 @@ def main(local_rank, args):
         logger.info(f"Total Frames per GPU: {total_frames_local} | Total Global Frames: {total_frames_global}")
 
     # Pre-create the directory so all GPU threads have a valid path to verify against
-    ckpt_dir = osp.join(args.work_dir, 'scenes') 
+    scenes_dir = osp.join(args.work_dir, 'scenes') 
     nan_log_path = osp.join(args.work_dir, 'nan_scenes.txt')
     if local_rank == 0:
-        os.makedirs(ckpt_dir, exist_ok=True)
+        os.makedirs(scenes_dir, exist_ok=True)
 
     for i_iter, data in enumerate(train_dataset_loader):
         global_scene_id = i_iter * world_size + local_rank
@@ -115,12 +116,15 @@ def main(local_rank, args):
         # ---------------------------------------------------------------------
         # Extract token early without destroying the original dictionary structure
         real_scene_id = data['sample_idx'][0]
-        save_path = osp.join(ckpt_dir, f'idx_{global_scene_id}_token_{real_scene_id}.pth')
+        save_path = osp.join(scenes_dir, f'idx_{global_scene_id}_token_{real_scene_id}.pth')
 
         if osp.exists(save_path):
             if local_rank == 0:
                 logger.info(f"  -> Skipping Global Frame [{current_frame_global}/{total_frames_global}] (ID: {real_scene_id}) - Checkpoint already exists.")
             continue
+        else:
+            sys.stdout.write(f"[GPU {local_rank}] -> Processing Global Frame [{current_frame_global}/{total_frames_global}] (ID: {real_scene_id}) - No existing checkpoint found.\n")
+            sys.stdout.flush()
 
         # 1. Push structural ground truth tokens and images to device
         for k in list(data.keys()):
@@ -191,26 +195,44 @@ def main(local_rank, args):
         for step in range(optimization_steps):
             optimizer.zero_grad()
 
-            with torch.autocast(device_type='cuda', dtype=torch.float16):
-                result_dict = my_model(x_bar=x_bar, metas=data)
+            # -----------------------------------------------------------------
+            # NEW: Upgraded Exception Handling Block
+            # -----------------------------------------------------------------
+            try:
+                with torch.autocast(device_type='cuda', dtype=torch.float16):
+                    result_dict = my_model(x_bar=x_bar, metas=data)
 
-                loss_input = {'metas': data}
-                for loss_input_key, loss_input_val in cfg.loss_input_convertion.items():
-                    loss_input[loss_input_key] = result_dict[loss_input_val]
+                    loss_input = {'metas': data}
+                    for loss_input_key, loss_input_val in cfg.loss_input_convertion.items():
+                        loss_input[loss_input_key] = result_dict[loss_input_val]
 
-                loss, loss_dict = loss_func(loss_input)
-            
-            # --- NEW: NaN Check ---
+                    loss, loss_dict = loss_func(loss_input)
+                    
+            except Exception as e: # <--- CHANGED: Catches ALL exceptions, including C++ LinAlgError
+                error_msg = str(e).lower()
+                # Catch singular matrices, linalg failures, or Inf/NaN explosions
+                if "singular" in error_msg or "linalg" in error_msg or "inversion" in error_msg:
+                    if local_rank == 0:
+                        logger.error(f"!!! Math Crash DETECTED on Global Frame [{current_frame_global}] ID: {real_scene_id} at Step {step} !!!")
+                    
+                    with open(nan_log_path, 'a') as f:
+                        f.write(f"Global Frame [{current_frame_global}] | ID: {real_scene_id} | Step: {step} | Error: {type(e).__name__}\n")
+                    
+                    skip_frame = True
+                    break # Safely abort this scene and move to the next one
+                else:
+                    raise e # Re-raise if it's something unrelated like CUDA Out of Memory
+
+            # --- Existing NaN Check ---
             if torch.isnan(loss).any():
-                logger.error(f"!!! NaN DETECTED on Global Frame [{current_frame_global}] ID: {real_scene_id} at Step {step} !!!")
-                # logger.error("Skipping this scene to prevent data corruption.")
+                if local_rank == 0:
+                    logger.error(f"!!! NaN DETECTED on Global Frame [{current_frame_global}] ID: {real_scene_id} at Step {step} !!!")
 
-                # Append to the list of failed scenes
                 with open(nan_log_path, 'a') as f:
-                    f.write(f"Global Frame [{current_frame_global}] | ID: {real_scene_id} | Step: {step}\n")
+                    f.write(f"Global Frame [{current_frame_global}] | ID: {real_scene_id} | Step: {step} | Error: NaN Loss\n")
 
-                skip_frame = True # Mark for skipping
-                break             # Exit the optimization loop immediately
+                skip_frame = True 
+                break             
             # ----------------------
                         
             scaler.scale(loss).backward()
@@ -288,6 +310,10 @@ def main(local_rank, args):
     
     if writer is not None:
         writer.close()
+
+    # Cleanly tear down the distributed process group
+    if distributed:
+        dist.destroy_process_group()
 
 
 if __name__ == '__main__':

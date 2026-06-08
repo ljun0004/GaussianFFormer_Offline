@@ -1,7 +1,7 @@
 # ================== data ========================
-data_root = "data/nuscenes/"
-anno_root = "data/nuscenes_cam/"
-occ_path = "data/surroundocc/samples"
+data_root = "/projects/faculty/tay_wee_peng_2026_05/Junn/nuScenes/nuscenes/"
+anno_root = "/projects/faculty/tay_wee_peng_2026_05/Junn/nuScenes/nuscenes_cam/"
+occ_path = "/projects/faculty/tay_wee_peng_2026_05/Junn/nuScenes/surroundocc/samples"
 input_shape = (704, 256)
 batch_size = 1
 
@@ -58,11 +58,11 @@ val_dataset_config = dict(
 
 train_loader = dict(
     batch_size=batch_size,
-    num_workers=2,
+    num_workers=8,
     shuffle=True
 )
 
 val_loader = dict(
     batch_size=batch_size,
-    num_workers=2
+    num_workers=8
 )
